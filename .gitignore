@@ -9,6 +9,9 @@ __pycache__/
 # Ignore environment variables
 .env
 
+# Ignore Mac system files
+.DS_Store
+
 # Ignore data files
 data/
 temp/
