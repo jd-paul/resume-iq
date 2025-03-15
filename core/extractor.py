@@ -22,18 +22,15 @@ def extract_contacts(text):
     emails_found = re.findall(email_pattern, text)
     urls_found = re.findall(url_pattern, text)
 
-    # ✅ Filter URLs:
     filtered_urls = []
     for url in urls_found:
-        # Check if the URL ends with a valid TLD or contains a path
         if any(url.endswith(tld) or f".{tld}/" in url for tld in VALID_URL_ENDINGS) or "/" in url:
-            # ❌ Ignore email domains (e.g., gmail.com, outlook.com)
             if not any(url == domain for domain in EMAIL_DOMAINS):
                 filtered_urls.append(url)
 
     return {
         "emails": emails_found,
-        "links": list(set(filtered_urls))  # Remove duplicates
+        "links": list(set(filtered_urls))
     }
 
 def extract_text_from_pdf(pdf_path):
