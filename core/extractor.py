@@ -14,23 +14,19 @@ def extract_contacts(text):
     """
     Extracts emails and valid URLs from the resume text.
     """
-    # ✅ Email pattern
+
     email_pattern = r'\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b'
 
-    # ✅ URL pattern
-    url_pattern = r'\b(?:https?://|www\.)?[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}(?:/[^\s]*)?\b'
+    url_pattern = r'\b(?:https?://|www\.)?[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:/[^\s]*)?\b'
 
     emails_found = re.findall(email_pattern, text)
     urls_found = re.findall(url_pattern, text)
 
-    # 🔍 Debug: Print raw extracted URLs before filtering
-    print("\n=== Raw Extracted URLs ===")
-    print(urls_found)
-
     # ✅ Filter URLs:
     filtered_urls = []
     for url in urls_found:
-        if any(url.endswith(tld) or f".{tld}/" in url for tld in VALID_URL_ENDINGS):
+        # Check if the URL ends with a valid TLD or contains a path
+        if any(url.endswith(tld) or f".{tld}/" in url for tld in VALID_URL_ENDINGS) or "/" in url:
             # ❌ Ignore email domains (e.g., gmail.com, outlook.com)
             if not any(url == domain for domain in EMAIL_DOMAINS):
                 filtered_urls.append(url)
@@ -39,8 +35,6 @@ def extract_contacts(text):
         "emails": emails_found,
         "links": list(set(filtered_urls))  # Remove duplicates
     }
-
-
 
 def extract_text_from_pdf(pdf_path):
     text = ""
