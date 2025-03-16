@@ -67,8 +67,8 @@ def train_model(data):
     model.fit(X_train_vectorized, y_train)
 
     # Save the model and vectorizer to the correct path
-    joblib.dump(model, "core/model/star_model.pkl")  # ✅ Fixed model save path
-    joblib.dump(vectorizer, "core/model/star_vectorizer.pkl")  # ✅ Fixed vectorizer save path
+    joblib.dump(model, "core/model/star_model.pkl")
+    joblib.dump(vectorizer, "core/model/star_vectorizer.pkl")
 
     # Evaluate the model
     X_test_vectorized = vectorizer.transform(X_test)
