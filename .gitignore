@@ -15,3 +15,5 @@ __pycache__/
 # Ignore data files
 data/
 temp/
+
+ignore.py
