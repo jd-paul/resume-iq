@@ -1,3 +1,10 @@
+"""
+The star_model.py file is basically a wrapper for the trained model (star_model.pk) and
+vectorizer (star_vectorizer.pk).
+
+It acts as the interface that lets other parts of your program use the trained model for predictions.
+"""
+
 import joblib
 
 class STARModel:
@@ -13,8 +20,9 @@ class STARModel:
         """
         Initializes the STAR model and vectorizer.
         """
-        self.model = joblib.load(model_path)
-        self.vectorizer = joblib.load(vectorizer_path)
+        self.model = joblib.load("core/model/star_model.pkl")
+        self.vectorizer = joblib.load("core/model/star_vectorizer.pkl")
+
 
     def predict(self, text):
         """

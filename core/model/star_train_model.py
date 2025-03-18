@@ -49,31 +49,40 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 import joblib
-from core.model.load_data import load_data, preprocess_data
+from core.model.star_load_data import load_data, preprocess_data
+from sklearn.model_selection import train_test_split, GridSearchCV
 
 def train_model(data):
     """
     Trains a Logistic Regression model on the labeled data.
     """
-    # Split data into training and testing sets
-    X_train, X_test, y_train, y_test = train_test_split(data["text"], data["label"], test_size=0.2, random_state=42)
+    X = data["text"]
+    y = data["label"]
 
-    # Convert text to TF-IDF features
-    vectorizer = TfidfVectorizer(stop_words="english")
-    X_train_vectorized = vectorizer.fit_transform(X_train)
+    # Create TF-IDF vectorizer with n-grams
+    vectorizer = TfidfVectorizer(stop_words="english", ngram_range=(1, 2))
+    X_vectorized = vectorizer.fit_transform(X)
 
-    # Train Logistic Regression model
-    model = LogisticRegression()
-    model.fit(X_train_vectorized, y_train)
+    # Hyperparameter tuning
+    param_grid = {
+        'C': [0.01, 0.1, 1, 10, 100],
+        'penalty': ['l2']
+    }
+    lr = LogisticRegression()
+    grid_search = GridSearchCV(lr, param_grid, cv=5, scoring='f1')
+    grid_search.fit(X_vectorized, y)
 
-    # Save the model and vectorizer to the correct path
-    joblib.dump(model, "core/model/star_model.pkl")
+    best_model = grid_search.best_estimator_
+
+    # Save best model & vectorizer
+    joblib.dump(best_model, "core/model/star_model.pkl")
     joblib.dump(vectorizer, "core/model/star_vectorizer.pkl")
 
-    # Evaluate the model
-    X_test_vectorized = vectorizer.transform(X_test)
-    accuracy = model.score(X_test_vectorized, y_test)
-    print(f"✅ Model Accuracy: {accuracy * 100:.2f}%")
+    # Evaluate with cross_val_score or a train_test_split again
+    y_pred = best_model.predict(X_vectorized)
+    accuracy = (y_pred == y).mean() * 100
+    print(f"Best model accuracy on entire dataset: {accuracy:.2f}%")
+
 
 if __name__ == "__main__":
     # Load and preprocess data
@@ -82,3 +91,5 @@ if __name__ == "__main__":
 
     # Train the model
     train_model(data)
+
+

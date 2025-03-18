@@ -9,11 +9,12 @@ is Logistic Regression classifier that determines whether a sentence follows the
 """
 
 import joblib
-import os
 import sys
+import os
+import json
 
-# Ensure we can import from the root project directory
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
+from core.extractor import extract_text_from_pdf, extract_sections, merge_multiline_bullets
 
 # Load the trained STAR model and vectorizer
 MODEL_PATH = "core/model/star_model.pkl"
@@ -25,7 +26,7 @@ vectorizer = joblib.load(VECTORIZER_PATH)
 
 def predict_star_sentences(sentences):
     """
-    Predicts whether each sentence follows the STAR method.
+    Evaluates whether each sentence follows the STAR method.
 
     Args:
         sentences (list of str): List of sentences from the resume.
@@ -54,20 +55,31 @@ def predict_star_sentences(sentences):
     }
 
 if __name__ == "__main__":
-    # Sample sentences for testing
-    sample_sentences = [
-        "Developed a cloud-based system that increased efficiency by 30%.",
-        "Led a team to improve customer satisfaction by 20%.",
-        "Worked on various projects without clear outcomes.",
-        "Optimized query performance but did not measure improvements.",
-        "Implemented a new CRM system, resulting in a 15% increase in sales."
-    ]
+    pdf_path = "core/data/sample_bad.pdf"
+
+    pdf_text = extract_text_from_pdf(pdf_path)
+
+    resume_sections = extract_sections(pdf_text) # Extract structured sections
+
+    # Merge multi-line bullets in extracted sections
+    all_bullets = []
+    for section in resume_sections:
+        for entry in section["entries"]:
+            cleaned_bullets = merge_multiline_bullets(entry["bullets"])
+            all_bullets.extend(cleaned_bullets)
 
     # Run STAR detection
-    results = predict_star_sentences(sample_sentences)
+    results = predict_star_sentences(all_bullets)
 
     # Print results
-    print("=== STAR Method Detection Results ===")
+    print("\n=== STAR Method Detection Results ===")
     print(f"Total Sentences: {results['total_sentences']}")
     print(f"STAR Sentences: {results['star_count']}")
-    print(f"STAR Percentage: {results['star_percentage']}%")
+    print(f"STAR Percentage: {results['star_percentage']}%\n")
+
+    # Print classification for each bullet point
+    print("=== Bullet Point Classification ===")
+    for bullet in all_bullets:
+        prediction = model.predict(vectorizer.transform([bullet]))[0]
+        classification = "✅ STAR" if prediction == 1 else "❌ Not STAR"
+        print(f"- {bullet} → {classification}")

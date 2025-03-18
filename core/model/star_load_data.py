@@ -1,4 +1,7 @@
 import pandas as pd
+import os
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_PATH = os.path.join(BASE_DIR, "../data/star_data.txt")
 
 def load_data(file_path):
     """
@@ -14,12 +17,10 @@ def preprocess_data(data):
     - Converts labels to integers.
     - Drops rows with missing values.
     """
-    data["label"] = data["label"].astype(int)  # Convert labels to integers
+    data["label"] = data["label"].astype(int)  # Conveart labels to integers
     data.dropna(inplace=True)  # Drop rows with missing values
     return data
 
 if __name__ == "__main__":
-    # Example usage
-    data = load_data("data/star_data.txt")
-    data = preprocess_data(data)
+    data = load_data(DATA_PATH)
     print(data.head())

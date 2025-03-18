@@ -1,6 +1,6 @@
 """
 
-This is the main file for calling analysis functions.
+This is the main file for calling analysis functions on bullet points in a CV.
 
 A. STAR Method Detection
 B. Statistics & Metrics
