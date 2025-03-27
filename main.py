@@ -8,13 +8,49 @@ model/: Model training and loading scripts.
 tests/: Unit and integration tests.
 """
 
+"""
+There are two main functions.
+
+extract_resume_text: Extracts text from a PDF resume. Extracts keywords
+from a PDF to help determine user's skills.
+
+"""
+
 import core.extractor as extractor
 from core.model.star_model import STARModel
+from fastapi import FastAPI, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
+import tempfile
+
+app = FastAPI()
+
+# Enable CORS so your Next.js frontend can call this
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Or your specific frontend domain
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.post("/extract-skills")
+async def extract_skills(file: UploadFile = File(...)):
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
+            contents = await file.read()
+            temp_file.write(contents)
+            temp_path = temp_file.name
+
+        skills = extractor.extract_skills_from_pdf(temp_path)
+        return {"skills": skills}
+
+    except Exception as e:
+        return {"error": str(e)}
+
 
 def main():
     # Step 1: Extract text from resume
-    file_path = "data/sample_good.pdf"
-    text = extractor.extract_resume_text(file_path)
+    pdf_path = "core/data/sample_good.pdf"
+    text = extractor.extract_text_from_pdf(pdf_path)
 
     # Step 2: Load STAR model
     model = STARModel()

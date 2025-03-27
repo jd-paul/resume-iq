@@ -1,6 +1,8 @@
 import pdfplumber
 import re
 import json
+from collections import Counter
+
 
 VALID_URL_ENDINGS = [
     ".com", ".org", ".net", ".io", ".co", ".co.uk", ".ai", ".edu",
@@ -212,6 +214,80 @@ def merge_multiline_bullets(bullet_lines):
         for bullet in merged_bullets
     ]
     return cleaned_bullets
+
+def extract_skills_from_pdf(pdf_path: str, custom_skill_list: list[str] = None) -> list[str]:
+    """
+    Extracts relevant skills from a PDF resume using:
+    - Common tech skill keywords
+    - Frequency analysis (for non-standard skills)
+    - Custom skill list (optional)
+    
+    Args:
+        pdf_path: Path to the PDF resume file
+        custom_skill_list: Optional list of skills to specifically look for
+        
+    Returns:
+        List of extracted skills ordered by relevance
+    """
+    # Common tech skills to look for
+    TECH_SKILLS = {
+        'python', 'java', 'javascript', 'c++', 'c#', 'ruby', 'php', 'swift', 'kotlin',
+        'html', 'css', 'sql', 'nosql', 'mongodb', 'postgresql', 'mysql',
+        'django', 'flask', 'react', 'angular', 'vue', 'node', 'express',
+        'aws', 'azure', 'gcp', 'docker', 'kubernetes', 'terraform',
+        'git', 'jenkins', 'ci/cd', 'linux', 'bash', 'powershell',
+        'machine learning', 'ai', 'data science', 'pandas', 'numpy', 'tensorflow', 'pytorch',
+        'agile', 'scrum', 'devops', 'oop', 'rest', 'api', 'microservices'
+    }
+    
+    # Common stop words to exclude
+    STOP_WORDS = {
+        'and', 'the', 'for', 'with', 'you', 'are', 'but', 'have', 'has', 'had',
+        'this', 'that', 'these', 'those', 'from', 'their', 'will', 'would',
+        'been', 'they', 'which', 'your', 'when', 'where', 'what', 'who'
+    }
+    
+    # Extract text and clean it
+    try:
+        text = extract_text_from_pdf(pdf_path).lower()
+    except Exception as e:
+        print(f"Error reading PDF: {e}")
+        return []
+    
+    # Combine with custom skills if provided
+    if custom_skill_list:
+        TECH_SKILLS.update({skill.lower() for skill in custom_skill_list})
+    
+    # Find exact matches of known skills (including multi-word)
+    found_skills = set()
+    for skill in TECH_SKILLS:
+        if ' ' in skill:
+            if skill in text:
+                found_skills.add(skill)
+        else:
+            if re.search(r'\b' + re.escape(skill) + r'\b', text):
+                found_skills.add(skill)
+    
+    # Additional processing for other potential skills
+    words = re.findall(r'\b[a-z]{3,}\b', text)
+    word_counts = Counter(words)
+    
+    # Remove stop words and already found skills
+    for word in STOP_WORDS.union(found_skills):
+        word_counts.pop(word, None)
+    
+    # Get top remaining words that look like skills
+    potential_skills = [
+        word for word, count in word_counts.most_common(20)
+        if not word.endswith('ing') and len(word) <= 15
+    ][:10]
+    
+    # Combine results - known skills first, then potential ones
+    results = sorted(found_skills, key=lambda x: (-word_counts.get(x, 0), x))
+    results.extend(potential_skills)
+    
+    return results[:15]
+
 
 if __name__ == "__main__":
     pdf_path = "core/data/sample_good.pdf"
