@@ -9,11 +9,12 @@ tests/: Unit and integration tests.
 """
 
 """
-There are two main functions.
 
-extract_resume_text: Extracts text from a PDF resume. Extracts keywords
-from a PDF to help determine user's skills.
-
+Program flowchart
+    A: User Uploads Resume PDF
+    B: Extract Text from PDF
+    C: Heuristics Evaluation
+    D: User receives score and feedback
 """
 
 import core.extractor as extractor

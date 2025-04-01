@@ -1,20 +1,63 @@
 """
+Depth Analysis Heuristic
+------------------------
 
-The depth analysis module is a one of the core heuristics in analysing resumes in this program. It analyses each bullet point,
-and evaluates whether the bullet point goes in-depth and focuses on the methodology of their role, or if it
-is too generic and lacks depth.
+This module evaluates each bullet point of a resume for its "depth," i.e., whether it conveys
+substantial technical or methodological detail. Unlike the STAR heuristic, which checks for
+Situation, Task, Action, and Result structure, Depth Analysis specifically focuses on:
 
-The method used for this is...
+1. Clear, Specific Actions
+   - Uses strong action verbs ("Implemented," "Automated," "Deployed," etc.)
+   - Mentions domain-relevant technologies or methods ("Docker + K8s," "TensorFlow," "CI/CD pipelines")
 
+2. Methodology
+   - Outlines *how* and *why* the action was performed
+   - Provides context for the approach or rationale
+   - For instance, "Automated CI/CD pipelines using Jenkins to streamline releases"
+     is deeper than "Worked on CI/CD."
+
+3. Technical Detail and Contextual Richness
+   - Indicates the *substance* or *impact* of the achievement ("Reduced deployment time by 60%")
+   - Goes beyond generic statements ("Handled various tasks") to demonstrate ownership, complexity,
+     or significant problem-solving
+
+Importantly:
+- This heuristic does NOT measure role-relevance. It doesn't matter whether the candidate is
+  applying for backend engineering, data science, or something else.
+- Instead, it universally checks if bullet points are *methodologically detailed* and *technically* or
+  *contextually* robust.
+
+Implementation
+--------------
+1. Embedding + Classifier
+   - We train or use a classifier on top of pre-trained sentence embeddings (e.g., MPNet, DistilBERT),
+     labeling bullet points as "deep" vs "shallow."
+   - This approach demonstrates real ML skill and can generalize across multiple domains once we
+     have enough labeled examples.
+
+2. Simple Heuristic via Cosine Similarity
+   - Compare user bullets to a curated list of "deep" example bullets (embedding-based).
+   - Less accurate than a trained model, but quicker to implement if you have few labeled samples.
+
+Usage
+-----
+Each bullet receives a 'depth score' (0-1). We then factor that score in the analysis_generator.py
 """
 
 import joblib
 import sys
 import os
 import json
+from sentence_transformers import SentenceTransformer, util
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
-from roles import JOB_ROLES
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../")))
+from roles.job_roles import JOB_ROLES
+
+
+# Load model
+# model = SentenceTransformer("all-MiniLM-L6-v2")
+model = SentenceTransformer("sentence-transformers/all-mpnet-base-v2")
+
 
 def get_keywords_for_role(category: str, role: str):
     try:
@@ -23,3 +66,51 @@ def get_keywords_for_role(category: str, role: str):
         return [kw.lower() for kw in keywords]
     except KeyError:
         return []
+
+
+def get_deep_role_paragraph(category: str, role: str) -> str:
+    """Returns a natural-language paragraph describing in-depth responsibilities for the role."""
+    if category == "Software Development and Engineering" and role == "Backend Developer":
+        return (
+            "A backend developer is responsible for designing and maintaining server-side logic. "
+            "They build RESTful APIs, manage database schemas, write business logic, and handle authentication. "
+            "They often work with Python, Node.js, or Java, and deploy applications using Docker, CI/CD pipelines, and cloud platforms. "
+            "Performance optimization, database tuning, and error handling are key responsibilities."
+        )
+    # Add more role descriptions as needed
+    return "This role requires deep technical implementation, problem-solving, and system design skills."
+
+
+def embed_role_context(category, role):
+    # Extracted from real resume bullets (screenshot)
+    deep_examples = [
+        "Integrated a NoSQL distributed database into production software, improving performance by over 30%.",
+        "Developed scripts to automate training data generation for machine learning models, boosting speed by 50%.",
+        "Utilized parallelization and containerization on AWS EC2 to process large datasets efficiently.",
+        "Executed analytics on 4 NoSQL databases including CouchDB and Aerospike, documenting configurations and performance.",
+        "Built a backend with Node and Express to manage RESTful APIs and handle complex query logic.",
+        "Trained an OpenAI-based AI assistant using LangChain and ChromaDB, tailored for browser context.",
+        "Led chat feature implementation using Firebase and React Native, supporting real-time communication and scaling.",
+        "Secured backend logic with Firebase authentication and Bearer token-based authorization flows.",
+        "Integrated a Flask server backend using Python to simplify text using OpenAI's GPT-3.5.",
+    ]
+
+    embeddings = model.encode(deep_examples, convert_to_tensor=True)
+    return embeddings.mean(dim=0)  # Averaged embedding represents the 'deep role context'
+
+def score_bullet_against_role(bullet: str, role_embedding) -> float:
+    """Returns cosine similarity between bullet and role embedding."""
+    bullet_embedding = model.encode(bullet, convert_to_tensor=True)
+    similarity = util.cos_sim(bullet_embedding, role_embedding).item()
+    return round(similarity, 3)
+
+# Example usage
+if __name__ == "__main__":
+    category = "Software Development and Engineering"
+    role = "Backend Developer"
+    bullet = "Built a CI/CD pipeline using GitHub Actions and Docker, reducing deployment time by 60%."
+
+    role_embedding = embed_role_context(category, role)
+    score = score_bullet_against_role(bullet, role_embedding)
+
+    print(f"Depth Score for bullet:\n{bullet}\n→ {score}")

@@ -1,11 +1,45 @@
 """
+STAR Method Heuristic
+---------------------
 
-The STAR method is a structured manner of responding to a behavioral-based interview question by discussing the
-specific situation, task, action, and result of the situation you are describing.
+This module evaluates each bullet point (or sentence) of a resume according to the STAR methodology:
+Situation, Task, Action, and Result. It determines whether a statement includes a structured narrative
+of what happened, why it happened, what the candidate did, and the measurable outcome.
 
-There are many ways to implement analysis of this on bullet points in a resume. The approached used here
-is Logistic Regression classifier that determines whether a sentence follows the STAR method or not.
+1. Situation
+   - Sets the context or background of the scenario.
+   - For instance, "In my previous role at X, we faced significant deployment delays..."
 
+2. Task
+   - Specifies the challenge or objective, typically the candidate's goal or responsibility.
+   - Example: "My task was to streamline and automate the deployment process..."
+
+3. Action
+   - Details the candidate's personal contributions or steps taken to address the task.
+   - Example: "I introduced a CI/CD pipeline using Jenkins and scripted Docker builds..."
+
+4. Result
+   - Describes the outcomes or impacts of the actions taken.
+   - Example: "...which reduced deployment time by 60% and increased reliability."
+
+Implementation
+--------------
+- Logistic Regression Classifier:
+  - Trained on labeled sentences or bullets (tagged STAR vs. non-STAR).
+  - Predicts the probability that a bullet follows the STAR framework.
+  - Can be refined by incorporating sublabels for each component (S/T/A/R) or by using multi-class classification.
+
+Comparison to Depth Analysis
+----------------------------
+- The STAR heuristic focuses on the *structure* of a bullet—whether it describes a Situation, Task, Action, and Result.
+- Depth Analysis evaluates *how much technical/methodological detail* is provided, rather than the presence of S, T, A, R.
+- A bullet can score well on STAR without being extremely technical, and vice versa.
+
+Usage
+-----
+After extracting bullet points from the resume, each bullet is classified as STAR-compliant or not.
+This result is factored into the overall scoring of the resume, often with a weighted approach along
+with other heuristics (Depth, Role Relevance, etc.).
 """
 
 import joblib
