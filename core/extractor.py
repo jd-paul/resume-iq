@@ -2,48 +2,64 @@ import pdfplumber
 import re
 import json
 from collections import Counter
+from typing import List, Dict, Optional
 
+# ----------------------------------------------------------
+#  Senior-Engineer-Level PDF Resume Extractor
+#  This version tightens bullet detection, merges partial
+#  lines more aggressively, and filters out “noise” lines.
+#  The goal is fewer, more accurate bullets.
+# ----------------------------------------------------------
 
+# 1) Constants + Patterns
 VALID_URL_ENDINGS = [
     ".com", ".org", ".net", ".io", ".co", ".co.uk", ".ai", ".edu",
     ".gov", ".us", ".uk", ".de", ".fr", ".jp", ".ca", ".au", ".info",
-    ".dev", ".tech", ".biz", ".online"
+    ".dev", ".tech", ".biz", ".online", ".me", ".ly", ".app", ".cloud"
 ]
 
-EMAIL_DOMAINS = ["gmail.com", "yahoo.com", "outlook.com", "hotmail.com"]
+EMAIL_DOMAINS = [
+    "gmail.com", "yahoo.com", "outlook.com", "hotmail.com",
+    "icloud.com", "protonmail.com", "aol.com", "mail.com"
+]
 
 COMMON_SECTION_HEADINGS = {
     # Work Experience
     "WORK EXPERIENCE", "EXPERIENCE", "PROFESSIONAL EXPERIENCE", "EMPLOYMENT HISTORY",
+    "CAREER HISTORY", "WORK HISTORY", "PROFESSIONAL BACKGROUND",
     # Projects
-    "PROJECTS", "PERSONAL PROJECTS", "ACADEMIC PROJECTS",
+    "PROJECTS", "PERSONAL PROJECTS", "ACADEMIC PROJECTS", "TECHNICAL PROJECTS",
+    "SELECTED PROJECTS", "KEY PROJECTS",
     # Education
     "EDUCATION", "ACADEMIC BACKGROUND", "EDUCATIONAL QUALIFICATIONS",
+    "ACADEMIC QUALIFICATIONS", "DEGREES", "STUDIES",
     # Skills
-    "SKILLS", "TECHNICAL SKILLS", "SOFT SKILLS", "LANGUAGES",
+    "SKILLS", "TECHNICAL SKILLS", "SOFT SKILLS", "LANGUAGES", "LANGUAGE SKILLS",
+    "TECHNICAL COMPETENCIES", "CORE COMPETENCIES", "AREAS OF EXPERTISE",
     # Certifications and Training
-    "CERTIFICATIONS", "TRAINING", "COURSES",
+    "CERTIFICATIONS", "TRAINING", "COURSES", "LICENSES", "PROFESSIONAL DEVELOPMENT",
     # Awards and Achievements
-    "AWARDS", "HONORS", "ACHIEVEMENTS",
+    "AWARDS", "HONORS", "ACHIEVEMENTS", "RECOGNITIONS", "ACCOMPLISHMENTS",
     # Hobbies and Interests
-    "HOBBIES", "INTERESTS", "VOLUNTEER WORK",
+    "HOBBIES", "INTERESTS", "VOLUNTEER WORK", "EXTRACURRICULAR ACTIVITIES",
     # Publications and Research
-    "PUBLICATIONS", "RESEARCH", "PRESENTATIONS",
+    "PUBLICATIONS", "RESEARCH", "PRESENTATIONS", "CONFERENCES", "PAPERS",
     # Contact Information
     "REFERENCES", "CONTACT INFORMATION", "CONTACT", "CONTACT ME", "CONTACT DETAILS",
+    "PERSONAL DETAILS", "HOW TO REACH ME",
     # Profile and Summary
     "PROFILE", "SUMMARY", "ABOUT ME", "OBJECTIVE", "GOALS", "MISSION",
-    "PROFESSIONAL SUMMARY", "EXECUTIVE SUMMARY",
+    "PROFESSIONAL SUMMARY", "EXECUTIVE SUMMARY", "CAREER OBJECTIVE",
     # Links and Portfolios
-    "LINKS", "PORTFOLIO", "SOCIAL MEDIA", "PROFILES",
+    "LINKS", "PORTFOLIO", "SOCIAL MEDIA", "PROFILES", "ONLINE PRESENCE",
     # Additional Information
-    "ADDITIONAL INFORMATION", "OTHER", "EXTRA",
+    "ADDITIONAL INFORMATION", "OTHER", "EXTRA", "MISCELLANEOUS",
     # Personal Details
-    "PERSONAL DETAILS", "BIOGRAPHY", "RESUME",
+    "PERSONAL DETAILS", "BIOGRAPHY", "RESUME", "CV",
     # Cover Letter
     "COVER LETTER", "LETTER",
     # Email and Phone
-    "EMAIL", "PHONE",
+    "EMAIL", "PHONE", "TELEPHONE", "MOBILE",
     # Summaries
     "SKILLS SUMMARY", "SUMMARY OF QUALIFICATIONS", "SUMMARY OF EXPERIENCE",
     "SUMMARY OF SKILLS", "SUMMARY OF PROFILE", "SUMMARY OF BACKGROUND",
@@ -52,129 +68,287 @@ COMMON_SECTION_HEADINGS = {
     "SUMMARY OF AWARDS", "SUMMARY OF HOBBIES", "SUMMARY OF ACCOMPLISHMENTS",
     "SUMMARY OF ACHIEVEMENTS",
 }
-COMMON_SECTION_HEADINGS_LOWER = set(h.lower() for h in COMMON_SECTION_HEADINGS)
+COMMON_SECTION_HEADINGS_LOWER = {h.lower() for h in COMMON_SECTION_HEADINGS}
 
-# Regex to detect date ranges
 DATE_PATTERN = re.compile(
-    r"(19|20)\d{2}"                  # 4-digit year starting 19xx or 20xx
-    r"(\s?[–\-—]\s?(19|20)\d{2})?"   # optional dash + second year
-    r"|(19|20)\d{2}\s?-\s?Present"   # or “2023-Present”
-    r"|Summer\s?(19|20)\d{2}"        # or “Summer 2024”
+    r"(?:\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}\b)|"  # Month Year
+    r"\b\d{4}\b|"                                                                  # Year only
+    r"(?:\b(?:19|20)\d{2}\s*[–\-—]\s*(?:19|20)\d{2}\b)|"                           # Year range
+    r"\b(?:19|20)\d{2}\s*-\s*Present\b|"                                           # Year-Present
+    r"\b(?:Present|Current)\b|"                                                    # Present/Current
+    r"\b(?:Summer|Winter|Fall|Spring)\s*(?:19|20)\d{2}\b"                          # Season Year
 )
 
-def extract_text_from_pdf(pdf_path):
-    """
-    Extracts text from a PDF while preserving line breaks.
-    """
-    text = ""
-    with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
-            page_text = page.extract_text() or ""
-            text += page_text + "\n"
-    return text
+BULLET_PATTERNS = [
+    r'^\s*[•▪♦➢➔⦿◦‣⁃■○✓]\s*',  # Various bullet chars
+    r'^\s*[\*\-\+]\s+',         # Asterisk, hyphen, plus
+    r'^\s*\d+[\.\)]\s*',        # Numbered list (1., 2) or 1)
+    r'^\s*[a-z]\)\s*',          # Letter lists (a), b)
+]
+BULLET_DETECT_PATTERN = re.compile('|'.join(BULLET_PATTERNS))
+REMOVE_BULLET_PATTERN = re.compile('|'.join(BULLET_PATTERNS))
 
-def extract_contacts(text):
+# For deciding whether we should merge lines
+INCOMPLETE_REGEX = re.compile(
+    r'[^.!?]$|[,;:]$|(?:\b(?:and|or|but|with|for|to|the|a|an|in|on|at|by|using)\s*$)',
+    re.IGNORECASE
+)
+
+# For final bullet merges in post-processing
+INCOMPLETE_SENTENCE_PATTERN = re.compile(
+    r'''
+    (?:[^.!?]\s*$)|                  # Ends without punctuation
+    (?:[a-z][^.!?]\s*$)|             # Ends with lowercase letter
+    (?:[,;:]\s*$)|                   # Ends with comma/semicolon/colon
+    (?:\b(?:and|or|but|with|for|to|the|a|an|in|on|at|by|as|using|via|through|while|when|where|who|which)\s*$)|
+    (?:\b(?:including|such as|e\.g\.|i\.e\.|etc\.?)\s*$)|
+    (?:\b(?:developed|created|built|implemented|designed|managed|led)\s*$)|
+    (?:\b[a-z]+ing\s*$)|
+    (?:\b[a-z]+ed\s*$)
+    ''',
+    re.IGNORECASE | re.VERBOSE
+)
+
+# ----------------------------------------------------------
+# 2) Bullet / Line / Noise Detection
+# ----------------------------------------------------------
+
+def is_bullet_line(line: str) -> bool:
     """
-    Extracts emails and valid URLs from the resume text.
+    Returns True only if the line starts with a recognized
+    bullet character, number, or letter pattern.
     """
-    email_pattern = r'\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b'
-    url_pattern = r'\b(?:https?://|www\.)?[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:/[^\s]*)?\b'
+    return bool(BULLET_DETECT_PATTERN.match(line))
 
-    emails_found = re.findall(email_pattern, text)
-    urls_found = re.findall(url_pattern, text)
 
-    filtered_urls = []
-    for url in urls_found:
-        if any(url.endswith(tld) or f".{tld}/" in url for tld in VALID_URL_ENDINGS) or "/" in url:
-            if not any(url == domain for domain in EMAIL_DOMAINS):
-                filtered_urls.append(url)
-
-    return {
-        "emails": list(set(emails_found)),
-        "links": list(set(filtered_urls))
-    }
-
-def is_section_heading(line):
+def should_merge_lines(prev_line: str, current_line: str) -> bool:
     """
-    Treat the line as a section heading if:
-    1) Its lower-cased version appears in COMMON_SECTION_HEADINGS_LOWER, or
-    2) It's fully uppercase (length > 3).
+    Decide if the current_line should be appended to prev_line,
+    i.e., if the previous bullet is 'incomplete' or this line
+    looks like a continuation (starts lowercase, etc.).
     """
-    line_stripped = line.strip()
-    line_lower = line_stripped.lower()
+    if not prev_line:
+        return False
+    prev_line_stripped = prev_line.strip()
 
-    if line_lower in COMMON_SECTION_HEADINGS_LOWER:
+    # If the previous line ends with . ! or ?, it's probably done
+    if re.search(r'[.!?]$', prev_line_stripped):
+        return False
+
+    # If the previous line is incomplete (no punctuation, ends with connector)
+    if INCOMPLETE_REGEX.search(prev_line_stripped):
         return True
 
-    # Also treat lines that are fully uppercase (and not just one or two chars) as headings
-    if line_stripped == line_stripped.upper() and len(line_stripped) > 3:
+    # If the current line starts with lowercase, it might be continuing
+    if current_line and current_line[0].islower():
         return True
 
     return False
 
-def is_job_title(line):
-    """
-    Heuristic check for lines that likely describe a position/company + date range.
-    """
-    return bool(DATE_PATTERN.search(line))
 
-def extract_sections(text):
+def filter_noise(bullets: List[str]) -> List[str]:
     """
-    Extracts structured sections from the resume text.
-    Returns something like:
-    [
-      {
-        "section_name": "WORK EXPERIENCE",
-        "entries": [
-          {
-            "title": "King's Labs - Software Engineer • 2024 - 2025",
-            "bullets": ["..."]
-          },
-          ...
-        ]
-      },
-      ...
+    Optional: Remove lines that look too short or have no
+    meaningful words. Tweak to skip filler lines like
+    "be the part of the little bud's life."
+    """
+    # Example "action" or "meaningful" words:
+    action_verbs = {
+        "created", "managed", "built", "developed", "implemented",
+        "designed", "administered", "resolved", "provided", "led",
+        "optimized", "deployed", "executed", "supported", "analyzed",
+        "orchestrated", "planned"
+    }
+    filtered = []
+    for b in bullets:
+        words = b.lower().split()
+        # If it's extremely short and has no strong verbs, skip
+        if len(words) < 5 and not (action_verbs & set(words)):
+            continue
+        filtered.append(b)
+    return filtered
+
+
+# ----------------------------------------------------------
+# 3) Text Extraction & Basic Parsing
+# ----------------------------------------------------------
+
+def extract_text_from_pdf(pdf_path: str) -> str:
+    """
+    Extracts text from a PDF while preserving line breaks.
+    Handles hyphenated words (like "execute-\nion").
+    """
+    full_text = []
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            for page in pdf.pages:
+                page_text = page.extract_text() or ""
+                # Merge hyphenated words across line breaks
+                page_text = re.sub(r'(\w+)-\s+(\w+)', r'\1\2', page_text)
+                full_text.append(page_text)
+    except Exception as e:
+        print(f"Error reading PDF: {e}")
+        return ""
+
+    return "\n".join(full_text).strip()
+
+
+def extract_contacts(text: str) -> Dict[str, List[str]]:
+    """
+    Extract emails and URLs. Then filter out junk (e.g. URL that is actually an email domain).
+    """
+    email_pattern = (
+        r'(?:\b|mailto:)[a-zA-Z0-9._%+-]+@'
+        r'[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b'
+    )
+    url_pattern = r'''
+        \b(?:https?://|www\.)
+        [a-zA-Z0-9-]+
+        (?:\.[a-zA-Z0-9-]+)+
+        (?:/[^\s]*)?
+        |
+        \b[a-zA-Z0-9-]+\.
+        (?:com|org|net|io|co|ai|edu|gov|us|uk|de|fr|jp|ca|au|info|dev|tech|biz)\b
+    '''
+
+    emails_found = re.findall(email_pattern, text, re.IGNORECASE)
+    urls_found = re.findall(url_pattern, text, re.IGNORECASE | re.VERBOSE)
+
+    filtered_urls = []
+    for url in urls_found:
+        url = url.strip().rstrip('/')
+        if any(url.endswith(tld) or f".{tld}/" in url for tld in VALID_URL_ENDINGS):
+            if not any(domain in url for domain in EMAIL_DOMAINS):
+                if url not in filtered_urls:
+                    filtered_urls.append(url)
+
+    return {
+        "emails": list({email.lower() for email in emails_found}),
+        "links": filtered_urls
+    }
+
+
+# ----------------------------------------------------------
+# 4) Section / Heading / Title Detection
+# ----------------------------------------------------------
+
+def is_section_heading(line: str) -> bool:
+    """
+    Check if a line is likely a resume section heading
+    by comparing to known headings, case patterns, etc.
+    """
+    line_stripped = line.strip()
+    line_lower = line_stripped.lower()
+
+    # Check known headings
+    if line_lower in COMMON_SECTION_HEADINGS_LOWER:
+        return True
+
+    # All uppercase heading
+    if (
+        line_stripped == line_stripped.upper()
+        and len(line_stripped) > 3
+        and any(c.isalpha() for c in line_stripped)
+    ):
+        return True
+
+    # Pattern: short line ending with colon, e.g. "WORK EXPERIENCE:"
+    if (
+        len(line_stripped.split()) <= 4
+        and (
+            line_stripped.endswith(':')
+            or re.search(r'^[A-Z][a-z]*(?:\s+[A-Z][a-z]*)*:$', line_stripped)
+        )
+    ):
+        return True
+
+    return False
+
+
+def is_job_title(line: str) -> bool:
+    """
+    Enhanced job title detection:
+    - If the line contains date patterns
+    - Or matches common job title patterns
+    """
+    line = line.strip()
+    # If date found, we often treat it as a job or position block
+    if DATE_PATTERN.search(line):
+        return True
+
+    patterns = [
+        r'^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:at|@)\s+',   # "Position at Company"
+        r'^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s+',             # "Position, Company"
+        r'^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+[–\-—]\s+',     # "Position - Company"
+        r'^[A-Z][a-zA-Z0-9\s&]+\s*[•\-|]\s*',               # "Company • Position"
+        r'^(?:Senior|Junior|Lead|Principal)\s+[A-Z][a-z]+', # "Senior Developer"
+        r'^[A-Z][a-z]+\s+(?:Engineer|Developer|Manager|Specialist|Analyst|Designer)\b',
+        r'^[A-Z][a-z]+\s+[A-Z][a-z]+\s+(?:Team|Group|Department)\b'
     ]
+    return any(re.search(pattern, line) for pattern in patterns)
+
+
+def extract_sections(text: str) -> List[Dict]:
+    """
+    Split the resume text by lines, detect section headings,
+    job titles, and group lines into structured sections.
     """
     lines = text.split("\n")
-
     sections = []
     current_section = None
     current_entry = None
+    previous_line_was_heading = False
 
     for raw_line in lines:
         line = raw_line.strip()
         if not line:
+            previous_line_was_heading = False
             continue
 
+        # If it's a recognized heading, start a new section
         if is_section_heading(line):
-            # Close out previous section
-            if current_section:
+            if current_section:  # close out old section
                 if current_entry:
                     current_section["entries"].append(current_entry)
                     current_entry = None
                 sections.append(current_section)
 
-            # Start a new section
-            current_section = {"section_name": line, "entries": []}
+            current_section = {
+                "section_name": line,
+                "entries": []
+            }
+            previous_line_was_heading = True
             continue
 
-        # If there's no current section, skip until we find one
+        # If we haven't yet started a section, skip lines until we do
         if not current_section:
             continue
 
-        if is_job_title(line):
-            # Close out the previous entry
+        # If it's a job title or we just had a heading, start a new "entry"
+        if is_job_title(line) or previous_line_was_heading:
             if current_entry:
                 current_section["entries"].append(current_entry)
-            # Start a new entry
-            current_entry = {"title": line, "bullets": []}
+
+            current_entry = {
+                "title": line,
+                "bullets": []
+            }
+            previous_line_was_heading = False
             continue
 
+        # Otherwise, add line to current entry's bullets
         if current_entry:
             current_entry["bullets"].append(line)
+        else:
+            # Orphaned line (no job title yet) => create an "Additional" entry
+            current_entry = {
+                "title": "Additional Information",
+                "bullets": [line]
+            }
 
-    # Final wrap-up
+        previous_line_was_heading = False
+
+    # Final close-out
     if current_section:
         if current_entry:
             current_section["entries"].append(current_entry)
@@ -182,84 +356,98 @@ def extract_sections(text):
 
     return sections
 
-BULLET_DETECT_PATTERN = re.compile(r'^\s*[•*\-]\s*')
-REMOVE_BULLET_PATTERN = re.compile(r'^\s*[•\-\*]\s*')
 
-def merge_multiline_bullets(bullet_lines):
+# ----------------------------------------------------------
+# 5) Merging Bullets, Removing Noise
+# ----------------------------------------------------------
+
+def merge_multiline_bullets(bullet_lines: List[str]) -> List[str]:
     """
-    Merges consecutive lines into a single bullet if they don't start with a bullet symbol.
-    Then strips the leading bullet symbol from each bullet.
+    Merge lines that do not start with bullet characters and
+    appear to be continuations (using `should_merge_lines`).
+    Then optionally filter out “noise” lines.
     """
     merged_bullets = []
     current_bullet = ""
 
     for line in bullet_lines:
-        # If the line *appears* to start with a bullet symbol, we treat it as a new bullet.
-        if BULLET_DETECT_PATTERN.match(line):
-            # If we already have a bullet being built, append it
+        line = line.rstrip()
+        if not line:
+            continue
+
+        # Check if line is a new bullet
+        is_bul = is_bullet_line(line)
+        clean_line = REMOVE_BULLET_PATTERN.sub("", line).strip() if is_bul else line
+
+        if is_bul:
+            # If we have an in-progress bullet, store it
             if current_bullet:
                 merged_bullets.append(current_bullet.strip())
-            current_bullet = line
+            current_bullet = clean_line
         else:
-            # Otherwise, we continue the existing bullet
-            current_bullet += " " + line
+            # Possibly merge into the previous bullet
+            if current_bullet and should_merge_lines(current_bullet, clean_line):
+                current_bullet += " " + clean_line
+            else:
+                # Start a new bullet if old bullet is done
+                if current_bullet:
+                    merged_bullets.append(current_bullet.strip())
+                current_bullet = clean_line
 
-    # Append the final bullet if it exists
+    # Wrap up last bullet
     if current_bullet:
         merged_bullets.append(current_bullet.strip())
 
-    # Now remove the bullet symbol
-    cleaned_bullets = [
-        REMOVE_BULLET_PATTERN.sub("", bullet).strip()
-        for bullet in merged_bullets
-    ]
-    return cleaned_bullets
+    # Filter out extremely short/noise lines if desired
+    merged_bullets = filter_noise(merged_bullets)
+    return merged_bullets
 
-def extract_skills_from_pdf(pdf_path: str, custom_skill_list: list[str] = None) -> list[str]:
+
+# ----------------------------------------------------------
+# 6) Skill Extraction
+# ----------------------------------------------------------
+
+def extract_skills_from_pdf(pdf_path: str, custom_skill_list: Optional[List[str]] = None) -> List[str]:
     """
-    Extracts relevant skills from a PDF resume using:
-    - Common tech skill keywords
-    - Frequency analysis (for non-standard skills)
-    - Custom skill list (optional)
-    
-    Args:
-        pdf_path: Path to the PDF resume file
-        custom_skill_list: Optional list of skills to specifically look for
-        
-    Returns:
-        List of extracted skills ordered by relevance
+    Return top matched + potential skills from text. 
+    We look for known tech skills and also guess from 
+    frequent noun phrases (up to 3 words).
     """
-    # Common tech skills to look for
     TECH_SKILLS = {
-        'python', 'java', 'javascript', 'c++', 'c#', 'ruby', 'php', 'swift', 'kotlin',
-        'html', 'css', 'sql', 'nosql', 'mongodb', 'postgresql', 'mysql',
-        'django', 'flask', 'react', 'angular', 'vue', 'node', 'express',
-        'aws', 'azure', 'gcp', 'docker', 'kubernetes', 'terraform',
-        'git', 'jenkins', 'ci/cd', 'linux', 'bash', 'powershell',
-        'machine learning', 'ai', 'data science', 'pandas', 'numpy', 'tensorflow', 'pytorch',
-        'agile', 'scrum', 'devops', 'oop', 'rest', 'api', 'microservices'
+        'python', 'java', 'javascript', 'typescript', 'c++', 'c#', 'ruby', 'php',
+        'swift', 'kotlin', 'go', 'rust', 'scala', 'r', 'matlab', 'perl',
+        'haskell', 'elixir', 'clojure', 'dart', 'html', 'css', 'sass', 'less',
+        'sql', 'nosql', 'mongodb', 'postgresql', 'mysql', 'sqlite', 'django',
+        'flask', 'react', 'angular', 'vue', 'node', 'express', 'spring',
+        'laravel', 'rails', 'aws', 'azure', 'gcp', 'docker', 'kubernetes',
+        'terraform', 'ansible', 'puppet', 'chef', 'git', 'jenkins', 'ci/cd',
+        'linux', 'bash', 'powershell', 'windows server', 'macos', 'machine learning',
+        'ai', 'data science', 'pandas', 'numpy', 'tensorflow', 'pytorch', 'keras',
+        'agile', 'scrum', 'devops', 'oop', 'rest', 'api', 'microservices',
+        'graphql', 'grpc', 'tableau', 'power bi', 'excel', 'word', 'powerpoint',
+        'outlook', 'jira', 'confluence'
     }
-    
-    # Common stop words to exclude
+
     STOP_WORDS = {
         'and', 'the', 'for', 'with', 'you', 'are', 'but', 'have', 'has', 'had',
         'this', 'that', 'these', 'those', 'from', 'their', 'will', 'would',
-        'been', 'they', 'which', 'your', 'when', 'where', 'what', 'who'
+        'been', 'they', 'which', 'your', 'when', 'where', 'what', 'who', 'how',
+        'should', 'could', 'would', 'might', 'must', 'shall', 'can', 'may'
     }
-    
-    # Extract text and clean it
+
+    # Merge custom skills if any
+    if custom_skill_list:
+        TECH_SKILLS.update({s.lower() for s in custom_skill_list})
+
+    # Extract text
     try:
         text = extract_text_from_pdf(pdf_path).lower()
     except Exception as e:
         print(f"Error reading PDF: {e}")
         return []
-    
-    # Combine with custom skills if provided
-    if custom_skill_list:
-        TECH_SKILLS.update({skill.lower() for skill in custom_skill_list})
-    
-    # Find exact matches of known skills (including multi-word)
+
     found_skills = set()
+    # 1) Direct match for known skills
     for skill in TECH_SKILLS:
         if ' ' in skill:
             if skill in text:
@@ -267,43 +455,107 @@ def extract_skills_from_pdf(pdf_path: str, custom_skill_list: list[str] = None) 
         else:
             if re.search(r'\b' + re.escape(skill) + r'\b', text):
                 found_skills.add(skill)
-    
-    # Additional processing for other potential skills
-    words = re.findall(r'\b[a-z]{3,}\b', text)
-    word_counts = Counter(words)
-    
-    # Remove stop words and already found skills
-    for word in STOP_WORDS.union(found_skills):
-        word_counts.pop(word, None)
-    
-    # Get top remaining words that look like skills
-    potential_skills = [
-        word for word, count in word_counts.most_common(20)
-        if not word.endswith('ing') and len(word) <= 15
-    ][:10]
-    
-    # Combine results - known skills first, then potential ones
-    results = sorted(found_skills, key=lambda x: (-word_counts.get(x, 0), x))
-    results.extend(potential_skills)
-    
-    return results[:15]
 
+    # 2) Heuristic search for short noun phrases 
+    # (up to 3 words) that might be skills
+    noun_phrases = re.findall(r'\b(?:[a-z]+\s){0,3}[a-z]+\b', text)
+    potential_skills = []
+    for phrase in noun_phrases:
+        # Exclude if in stop words, or already recognized
+        if phrase in found_skills:
+            continue
+        tokens = phrase.split()
+        if len(tokens) <= 3 and not any(t in STOP_WORDS for t in tokens):
+            potential_skills.append(phrase)
+
+    # 3) Frequency scoring for potential skills
+    freq_counter = Counter(potential_skills)
+    top_candidates = [skill for skill, _ in freq_counter.most_common(20)]
+
+    # Sort known skills by frequency in text, then add top 10 guessed
+    sorted_known = sorted(found_skills, key=lambda s: (-text.count(s), s))
+    sorted_known.extend(top_candidates[:10])
+
+    return sorted_known[:20]
+
+
+# ----------------------------------------------------------
+# 7) Post-Processing (Merging Incomplete Sentences)
+# ----------------------------------------------------------
+
+def post_process_resume_data(resume_data: Dict) -> Dict:
+    """
+    Final pass: standardize emails, refine bullet merges 
+    for incomplete sentences.
+    """
+    # Clean contacts
+    resume_data['contacts']['emails'] = [email.lower() for email in resume_data['contacts']['emails']]
+
+    # For each bullet, if it ends with typical incomplete pattern, merge with next
+    for section in resume_data['sections']:
+        section['section_name'] = section['section_name'].strip()
+
+        for entry in section['entries']:
+            entry['title'] = entry['title'].strip()
+
+            cleaned_bullets = []
+            current_sentence = ""
+
+            for bullet in entry['bullets']:
+                bullet = bullet.strip()
+                if not bullet:
+                    continue
+
+                # If the current sentence is incomplete, then merge
+                if current_sentence and INCOMPLETE_SENTENCE_PATTERN.search(current_sentence):
+                    current_sentence += " " + bullet
+                else:
+                    # If we had a complete bullet, store it
+                    if current_sentence:
+                        cleaned_bullets.append(current_sentence)
+                    current_sentence = bullet
+
+            if current_sentence:
+                cleaned_bullets.append(current_sentence)
+
+            entry['bullets'] = cleaned_bullets
+
+    return resume_data
+
+
+# ----------------------------------------------------------
+# 8) Main
+# ----------------------------------------------------------
 
 if __name__ == "__main__":
     pdf_path = "core/data/sample_good.pdf"
-    pdf_text = extract_text_from_pdf(pdf_path)
-    contacts = extract_contacts(pdf_text)
-    resume_sections = extract_sections(pdf_text)
 
-    # Merge multi-line bullets, removing bullet symbols
-    for section in resume_sections:
-        for entry in section["entries"]:
-            entry["bullets"] = merge_multiline_bullets(entry["bullets"])
+    try:
+        pdf_text = extract_text_from_pdf(pdf_path)
 
-    output = {
-        "contacts": contacts,
-        "sections": resume_sections
-    }
+        # Gather contacts (emails/links)
+        contacts = extract_contacts(pdf_text)
 
-    # Print with ensure_ascii=False so that special characters remain readable
-    print(json.dumps(output, indent=2, ensure_ascii=False))
+        # Extract hierarchical sections
+        resume_sections = extract_sections(pdf_text)
+
+        # Merge bullets in each entry
+        for section in resume_sections:
+            for entry in section["entries"]:
+                entry["bullets"] = merge_multiline_bullets(entry["bullets"])
+
+        # Build final output
+        output = {
+            "contacts": contacts,
+            "sections": resume_sections,
+            "skills": extract_skills_from_pdf(pdf_path)
+        }
+
+        # Post-process to unify incomplete sentences, etc.
+        output = post_process_resume_data(output)
+
+        # Print JSON
+        print(json.dumps(output, indent=2, ensure_ascii=False))
+
+    except Exception as e:
+        print(f"Error processing resume: {e}")
