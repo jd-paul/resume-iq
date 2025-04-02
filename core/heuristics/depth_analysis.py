@@ -44,77 +44,67 @@ Usage
 Each bullet receives a 'depth score' (0-1). We then factor that score in the analysis_generator.py
 """
 
-
 import joblib
 import sys
 import os
-from sentence_transformers import SentenceTransformer, util
+from sentence_transformers import SentenceTransformer
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../")))
-from roles.job_roles import JOB_ROLES
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
+from core.extractor import extract_text_from_pdf, extract_sections, merge_multiline_bullets
 
-
-# Load pre-trained models
-embedding_model = SentenceTransformer("sentence-transformers/all-mpnet-base-v2")
-
-# Load the trained depth classifier
-MODEL_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "../model/depth_model.pkl"))
+# Load sentence transformer and trained classifier
+EMBEDDING_MODEL = SentenceTransformer("sentence-transformers/all-mpnet-base-v2")
+MODEL_PATH = "core/model/depth_model.pkl"
 depth_clf = joblib.load(MODEL_PATH)
 
+def predict_depth_sentences(sentences):
+    """
+    Evaluates whether each sentence is methodologically deep.
 
-def get_keywords_for_role(category: str, role: str):
-    try:
-        role_data = JOB_ROLES[category][role]
-        keywords = role_data["required_skills"] + role_data["recommended_skills"]["technical"]
-        return [kw.lower() for kw in keywords]
-    except KeyError:
-        return []
+    Args:
+        sentences (list of str): List of sentences from the resume.
 
+    Returns:
+        dict: Depth classification results with depth percentage.
+    """
+    if not sentences:
+        return {"deep_count": 0, "total_sentences": 0, "deep_percentage": 0}
 
-def get_deep_role_paragraph(category: str, role: str) -> str:
-    """Returns a natural-language paragraph describing in-depth responsibilities for the role."""
-    if category == "Software Development and Engineering" and role == "Backend Developer":
-        return (
-            "A backend developer is responsible for designing and maintaining server-side logic. "
-            "They build RESTful APIs, manage database schemas, write business logic, and handle authentication. "
-            "They often work with Python, Node.js, or Java, and deploy applications using Docker, CI/CD pipelines, and cloud platforms. "
-            "Performance optimization, database tuning, and error handling are key responsibilities."
-        )
-    # Add more role descriptions as needed
-    return "This role requires deep technical implementation, problem-solving, and system design skills."
+    embeddings = EMBEDDING_MODEL.encode(sentences)
+    predictions = depth_clf.predict(embeddings)
 
+    deep_count = sum(predictions)
+    total_sentences = len(sentences)
+    deep_percentage = (deep_count / total_sentences) * 100 if total_sentences else 0
 
-def embed_role_context(category, role):
-    # Extracted from real resume bullets (screenshot)
-    deep_examples = [
-        "Integrated a NoSQL distributed database into production software, improving performance by over 30%.",
-        "Developed scripts to automate training data generation for machine learning models, boosting speed by 50%.",
-        "Utilized parallelization and containerization on AWS EC2 to process large datasets efficiently.",
-        "Executed analytics on 4 NoSQL databases including CouchDB and Aerospike, documenting configurations and performance.",
-        "Built a backend with Node and Express to manage RESTful APIs and handle complex query logic.",
-        "Trained an OpenAI-based AI assistant using LangChain and ChromaDB, tailored for browser context.",
-        "Led chat feature implementation using Firebase and React Native, supporting real-time communication and scaling.",
-        "Secured backend logic with Firebase authentication and Bearer token-based authorization flows.",
-        "Integrated a Flask server backend using Python to simplify text using OpenAI's GPT-3.5.",
-    ]
+    return {
+        "deep_count": deep_count,
+        "total_sentences": total_sentences,
+        "deep_percentage": round(deep_percentage, 2)
+    }
 
-    embeddings = embedding_model.encode(deep_examples, convert_to_tensor=True)
-    return embeddings.mean(dim=0)  # Averaged embedding represents the 'deep role context'
-
-
-def score_bullet_ml(bullet: str) -> float:
-    """Returns probability that bullet is 'deep' using trained model."""
-    emb = embedding_model.encode([bullet])
-    prob = depth_clf.predict_proba(emb)[0][1]  # probability of class 1 (deep)
-    return round(prob, 3)
-
-
-# Example usage
 if __name__ == "__main__":
-    category = "Software Development and Engineering"
-    role = "Backend Developer"
-    bullet = "Built a CI/CD pipeline using GitHub Actions and Docker, reducing deployment time by 60%."
+    pdf_path = "core/data/sample_good.pdf"
 
-    # Using the model to score the bullet
-    depth_score = score_bullet_ml(bullet)
-    print(f"Depth Score for bullet:\n{bullet}\n→ {depth_score}")
+    pdf_text = extract_text_from_pdf(pdf_path)
+    resume_sections = extract_sections(pdf_text)
+
+    all_bullets = []
+    for section in resume_sections:
+        for entry in section["entries"]:
+            cleaned_bullets = merge_multiline_bullets(entry["bullets"])
+            all_bullets.extend(cleaned_bullets)
+
+    results = predict_depth_sentences(all_bullets)
+
+    print("\n=== Depth Analysis Results ===")
+    print(f"Total Sentences: {results['total_sentences']}")
+    print(f"Deep Sentences: {results['deep_count']}")
+    print(f"Depth Percentage: {results['deep_percentage']}%\n")
+
+    print("=== Bullet Point Classification ===")
+    for bullet in all_bullets:
+        embedding = EMBEDDING_MODEL.encode([bullet])
+        prediction = depth_clf.predict(embedding)[0]
+        classification = "🧠 Deep" if prediction == 1 else "⚪ Shallow"
+        print(f"- {bullet} → {classification}")

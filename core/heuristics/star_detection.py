@@ -45,7 +45,6 @@ with other heuristics (Depth, Role Relevance, etc.).
 import joblib
 import sys
 import os
-import json
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 from core.extractor import extract_text_from_pdf, extract_sections, merge_multiline_bullets
