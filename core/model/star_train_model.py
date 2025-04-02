@@ -1,6 +1,6 @@
 """
-📌 **Notes: Understanding the STAR Model (Logistic Regression + TF-IDF)**
-==============================================================
+**Notes: Understanding the STAR Model (Logistic Regression + TF-IDF)**
+----------------------------------------------------------------------
 
 ### What This Model Does**
 - This model predicts whether a given sentence follows the **STAR (Situation, Task, Action, Result) method**.
@@ -10,7 +10,7 @@
 ---
 
 ### Step-by-Step Breakdown**
-#### **A. Data Preparation**
+#### Data Preparation**
 - The dataset `star_data.txt` contains labeled sentences (`sentence | label` format).
 - `load_data()` reads this file, and `preprocess_data()`:
   - Converts labels (`1` or `0`) to integers.

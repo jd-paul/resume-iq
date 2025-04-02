@@ -44,19 +44,22 @@ Usage
 Each bullet receives a 'depth score' (0-1). We then factor that score in the analysis_generator.py
 """
 
+
 import joblib
 import sys
 import os
-import json
 from sentence_transformers import SentenceTransformer, util
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../")))
 from roles.job_roles import JOB_ROLES
 
 
-# Load model
-# model = SentenceTransformer("all-MiniLM-L6-v2")
-model = SentenceTransformer("sentence-transformers/all-mpnet-base-v2")
+# Load pre-trained models
+embedding_model = SentenceTransformer("sentence-transformers/all-mpnet-base-v2")
+
+# Load the trained depth classifier
+MODEL_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "../model/depth_model.pkl"))
+depth_clf = joblib.load(MODEL_PATH)
 
 
 def get_keywords_for_role(category: str, role: str):
@@ -95,14 +98,16 @@ def embed_role_context(category, role):
         "Integrated a Flask server backend using Python to simplify text using OpenAI's GPT-3.5.",
     ]
 
-    embeddings = model.encode(deep_examples, convert_to_tensor=True)
+    embeddings = embedding_model.encode(deep_examples, convert_to_tensor=True)
     return embeddings.mean(dim=0)  # Averaged embedding represents the 'deep role context'
 
-def score_bullet_against_role(bullet: str, role_embedding) -> float:
-    """Returns cosine similarity between bullet and role embedding."""
-    bullet_embedding = model.encode(bullet, convert_to_tensor=True)
-    similarity = util.cos_sim(bullet_embedding, role_embedding).item()
-    return round(similarity, 3)
+
+def score_bullet_ml(bullet: str) -> float:
+    """Returns probability that bullet is 'deep' using trained model."""
+    emb = embedding_model.encode([bullet])
+    prob = depth_clf.predict_proba(emb)[0][1]  # probability of class 1 (deep)
+    return round(prob, 3)
+
 
 # Example usage
 if __name__ == "__main__":
@@ -110,7 +115,6 @@ if __name__ == "__main__":
     role = "Backend Developer"
     bullet = "Built a CI/CD pipeline using GitHub Actions and Docker, reducing deployment time by 60%."
 
-    role_embedding = embed_role_context(category, role)
-    score = score_bullet_against_role(bullet, role_embedding)
-
-    print(f"Depth Score for bullet:\n{bullet}\n→ {score}")
+    # Using the model to score the bullet
+    depth_score = score_bullet_ml(bullet)
+    print(f"Depth Score for bullet:\n{bullet}\n→ {depth_score}")

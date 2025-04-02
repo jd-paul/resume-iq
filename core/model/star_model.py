@@ -1,8 +1,9 @@
 """
-The star_model.py file is basically a wrapper for the trained model (star_model.pk) and
-vectorizer (star_vectorizer.pk).
+star_model.py
 
-It acts as the interface that lets other parts of your program use the trained model for predictions.
+Wrapper for the trained model (star_model.pk) and vectorizer (star_vectorizer.pk).
+
+This allows the rest of the Resume IQ system to easily evaluate bullet points for technical and methodological depth.
 """
 
 import joblib
@@ -33,7 +34,6 @@ class STARModel:
         return prediction[0] == 1  # Returns True if STAR-compliant, False otherwise
 
 if __name__ == "__main__":
-    # Example usage
     model = STARModel()
-    print(model.predict("Developed a system that increased efficiency by 30%."))  # Should return True
-    print(model.predict("Worked on various projects without clear outcomes."))  # Should return False
+    print(model.predict("Developed a system that increased efficiency by 30%."))
+    print(model.predict("Worked on various projects without clear outcomes."))
