@@ -35,6 +35,8 @@ if __name__ == "__main__":
     dm = DepthModel()
     bullet_1 = "Built an ETL pipeline using Airflow and Spark to process 10M+ rows daily."
     bullet_2 = "Worked on reporting stuff."
+    bullet_3 = "Developed an SQL server using SQL and Python."
 
     print(f"Depth Score: {bullet_1} → {dm.predict_proba(bullet_1)}")
     print(f"Depth Score: {bullet_2} → {dm.predict_proba(bullet_2)}")
+    print(f"Depth Score: {bullet_3} → {dm.predict_proba(bullet_3)}")

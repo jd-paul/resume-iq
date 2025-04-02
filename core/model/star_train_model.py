@@ -38,58 +38,46 @@
 
 """
 
-import sys
 import os
-
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
-
+import sys
+import joblib
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import train_test_split
-import joblib
-from core.model.star_load_data import load_data, preprocess_data
-from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.model_selection import GridSearchCV
 
-def train_model(data):
-    """
-    Trains a Logistic Regression model on the labeled data.
-    """
-    X = data["text"]
-    y = data["label"]
+def load_data(file_path: str):
+    """Loads labeled STAR data from a 'sentence | label' text file."""
+    return pd.read_csv(file_path, sep="|", header=None, names=["text", "label"])
 
-    # Create TF-IDF vectorizer with n-grams
+def preprocess_data(data: pd.DataFrame):
+    """Cleans the dataset by converting labels to int and dropping incomplete rows."""
+    data["label"] = data["label"].astype(int)
+    return data.dropna()
+
+def train_model(data_path: str):
+    """
+    Loads data, vectorizes text using TF-IDF, trains a Logistic Regression classifier,
+    and saves both the model and vectorizer to disk.
+    """
+    data = preprocess_data(load_data(data_path))
+    X, y = data["text"], data["label"]
+
     vectorizer = TfidfVectorizer(stop_words="english", ngram_range=(1, 2))
-    X_vectorized = vectorizer.fit_transform(X)
+    X_vec = vectorizer.fit_transform(X)
 
-    # Hyperparameter tuning
-    param_grid = {
-        'C': [0.01, 0.1, 1, 10, 100],
-        'penalty': ['l2']
-    }
-    lr = LogisticRegression()
-    grid_search = GridSearchCV(lr, param_grid, cv=5, scoring='f1')
-    grid_search.fit(X_vectorized, y)
+    grid = GridSearchCV(LogisticRegression(), {
+        "C": [0.01, 0.1, 1, 10],
+        "penalty": ["l2"]
+    }, cv=5, scoring="f1")
 
-    best_model = grid_search.best_estimator_
+    grid.fit(X_vec, y)
+    best_model = grid.best_estimator_
 
-    # Save best model & vectorizer
     joblib.dump(best_model, "core/model/star_model.pkl")
     joblib.dump(vectorizer, "core/model/star_vectorizer.pkl")
 
-    # Evaluate with cross_val_score or a train_test_split again
-    y_pred = best_model.predict(X_vectorized)
-    accuracy = (y_pred == y).mean() * 100
-    print(f"Best model accuracy on entire dataset: {accuracy:.2f}%")
-
+    print(f"✔ Trained STAR model — Accuracy: {(best_model.predict(X_vec) == y).mean():.2%}")
 
 if __name__ == "__main__":
-    # Load and preprocess data
-    data = load_data("core/data/star_data.txt")
-    data = preprocess_data(data)
-
-    # Train the model
-    train_model(data)
-
-
+    train_model("core/data/star_data.txt")

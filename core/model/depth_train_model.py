@@ -48,8 +48,8 @@ E. Saving the Model
 Example Inference Flow
 -----------------------
 - A sentence is embedded → passed to the classifier → outputs probability:
-    "Built a CI/CD pipeline..." → 0.92 (Deep)
-    "Worked on projects..."     → 0.21 (Shallow)
+    Depth Score: Built an ETL pipeline... → 0.69
+    Depth Score: Worked on reporting... → 0.34
 
 """
 
